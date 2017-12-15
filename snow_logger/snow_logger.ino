@@ -8,21 +8,28 @@
 #include <SPI.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
-#include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "oled_stuff.h"
 
 #define ONEWIRE_PIN 10
 #define CARDCS 4
 #define MAX_FILES 999
+#define MAX_DATA_POINTS 10
+#define DISPLAY_RATE 100
 
 Adafruit_SSD1306 oled = Adafruit_SSD1306();
 OneWire onewireBus(ONEWIRE_PIN);
 DallasTemperature ds18(&onewireBus);
 
-float tempF;
-int dataFileCounter;
-char fileName[13] = {' '};
+File dataFile;
+float temperature;
+int dataFileCounter, dataPointCounter;
+int lastUpdate;
+char* fileName = "SNOWXXX.DAT";
+enum mode {
+  STOPPED,
+  LOGGING,
+} currentMode = STOPPED;
 
 //--------------------------------------------------------------------------------------
 //                               S  E  T  U  P
@@ -33,7 +40,6 @@ void setup() {
   Serial.println(F("Snow Logger ****"));
 
   initStuff();
-  dataFileCounter = 0;
   Serial.print(F("Counting files..."));  
   countFiles(SD.open("/"), 0);
   Serial.println(dataFileCounter);    
@@ -43,17 +49,81 @@ void setup() {
 //                                L  O  O  P
 //--------------------------------------------------------------------------------------
 void loop() {
+  // Get current temperature.
+  temperature = getTemperature();
+  
+  if (buttonA()) {
+    if (currentMode != LOGGING) {
+      openNewFile(dataFileCounter++);
+    }
+    currentMode = LOGGING;
+
+    Serial.print(dataPointCounter); Serial.print(" "); Serial.println(temperature);
+    dataFile.print(dataPointCounter); dataFile.print(" "); dataFile.println(temperature);
+
+    dataPointCounter++;    
+    if (dataPointCounter >= MAX_DATA_POINTS) {
+      Serial.println("Closing file.");
+      closeFile();
+      dataPointCounter = 0;
+      currentMode = STOPPED;      
+    }
+    delay(250);
+  }
+
+  // Update display
+  if (millis() - lastUpdate > DISPLAY_RATE) {
+    updateDisplay();
+  }
+}
+
+//--------------------------------------------------------------------------------------
+void openNewFile(int counter) {
+  // Not enough room for sprintf!!!
+  fileName[4] = 0x30 + dataFileCounter / 100 % 10;
+  fileName[5] = 0x30 + dataFileCounter / 10  % 10;  
+  fileName[6] = 0x30 + dataFileCounter       % 10;
+  Serial.print("Opening file..."); Serial.println(fileName);
+  dataFile = SD.open(fileName, FILE_WRITE);
+}
+
+//--------------------------------------------------------------------------------------
+void closeFile() {
+  dataFile.flush();
+  dataFile.close();
+}
+
+//--------------------------------------------------------------------------------------
+void updateDisplay() {
   oled.clearDisplay();
-  tempF = getTemperature();  
+  //
+  // Stuff on the right side
+  //
   oled.setCursor(65,0);
-  oled.print(tempF);
+  oled.print(temperature);
   oled.setCursor(65,18);
   oled.print(dataFileCounter);
-  if (buttonA()) oled.print("A");
-  if (buttonB()) oled.print("B");
-  if (buttonC()) oled.print("C");
+
+  //
+  // Mode base info
+  //
+  oled.setCursor(0,0);
+  switch (currentMode) {
+    case STOPPED:
+      oled.print("PRESS");
+      oled.setCursor(0,18); 
+      oled.print("  A");
+      break;
+    case LOGGING:
+      oled.print("POINT");
+      oled.setCursor(0,18); 
+      oled.print(dataPointCounter);
+      break;
+    default:
+      oled.print("????");
+  }
+  
   oled.display();
-  delay(100);
 }
 
 //--------------------------------------------------------------------------------------
@@ -84,11 +154,18 @@ void initStuff() {
   // SD Card
   //
   if (!SD.begin(CARDCS)) {
-    Serial.println(F("SD failed, or not present"));
-    oled.print(F("SD FAILED"));
+    Serial.println("SD failed, or not present");
+    oled.print("SD FAILED");
     oled.display();
     while (1);
   }
+
+  //
+  // Misc.
+  //
+  dataFileCounter = 0;
+  dataPointCounter = 0;
+  lastUpdate = millis();
 }
 
 //--------------------------------------------------------------------------------------
