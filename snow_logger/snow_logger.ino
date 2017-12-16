@@ -11,10 +11,11 @@
 #include <Adafruit_SSD1306.h>
 #include "oled_stuff.h"
 
-#define ONEWIRE_PIN 10
+#define ONEWIRE_PIN 18
 #define CARDCS 4
 #define MAX_FILES 999
-#define MAX_DATA_POINTS 10
+#define MAX_DATA_POINTS 37
+#define DEBOUNCE 250
 #define DISPLAY_RATE 100
 
 Adafruit_SSD1306 oled = Adafruit_SSD1306();
@@ -51,8 +52,13 @@ void setup() {
 void loop() {
   // Get current temperature.
   temperature = getTemperature();
-  
+
+  // Start logging / take a data point
   if (buttonA()) {
+    oled.setCursor(50,18);
+    oled.print("o");
+    oled.display();
+
     if (currentMode != LOGGING) {
       openNewFile(dataFileCounter++);
     }
@@ -63,18 +69,28 @@ void loop() {
 
     dataPointCounter++;    
     if (dataPointCounter >= MAX_DATA_POINTS) {
-      Serial.println("Closing file.");
-      closeFile();
-      dataPointCounter = 0;
-      currentMode = STOPPED;      
+      stopLogging();
     }
-    delay(250);
+    delay(DEBOUNCE);
+  }
+
+  // Abort
+  if (buttonC() && currentMode == LOGGING) {
+    stopLogging();
   }
 
   // Update display
   if (millis() - lastUpdate > DISPLAY_RATE) {
     updateDisplay();
   }
+}
+
+//--------------------------------------------------------------------------------------
+void stopLogging() {
+  Serial.println("Closing file.");
+  closeFile();
+  dataPointCounter = 0;
+  currentMode = STOPPED;        
 }
 
 //--------------------------------------------------------------------------------------
